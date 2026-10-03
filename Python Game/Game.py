@@ -31,496 +31,281 @@
 # barriers that increase the amount of damage you do, you have fruits/collectables that increase the fire rate of your
 # weapon. Additionally, I made it so that enemies walk towards you rather than you walking towards them.
 
-# Import necessary modules
-import uvage
+import os
 import random
 
-# Define screen dimensions and initialize camera
-screen_height = 600
-screen_width = 800
-camera = uvage.Camera(screen_width, screen_height)
+import uvage
 
-# Time variables
-time = 0
-second_time = 0
-third_time = 0
+ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Constant variables
-b = 15  # Bullet base speed value
-time_kill = 1  # Base number of bullets it takes to kill
-time_kill2 = 1  # Base number of bullets it takes to kill for second enemy
-x = 0  # Number of times cowboy has been hit by enemy
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+FPS = 60
 
-# Scenery setup
-scenery = [uvage.from_image(700, 400, "cactus.png"),
-           uvage.from_image(400, 124, "cactus.png")]
-house = uvage.from_image(70, 300, "House.png")
+BASE_BULLET_SPEED = 15
+MAX_BULLET_SPEED = 60
+PINEAPPLE_BOOST = 3
+FRUIT_INTERVAL = 360  # ticks between pineapple spawns
+HIT_FRAMES = 30       # frames of contact that make up one hit
+MAX_HITS = 2
+HOUSE_X = 50          # an enemy past this x has reached the house
+# (ticks survived, bullets to kill), checked from the toughest step down.
+ENEMY_HP_STEPS = ((6000, 10), (5000, 8), (4000, 6), (3000, 4), (2000, 2), (0, 1))
 
-# Game flags and status variables
-GameTrue = True
-enemy_killed = False
-enemy_killed2 = False
-bullet_shooting = False
+camera = uvage.Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
 
 
-# TimerAll class handles game timing
+def asset(name):
+    return os.path.join(ASSET_DIR, name)
+
+
+def enemy_hp(ticks):
+    for threshold, hp in ENEMY_HP_STEPS:
+        if ticks > threshold:
+            return hp
+    return 1
+
+
+# TimerAll counts ticks and draws the clock
 class TimerAll:
 
     def __init__(self):
-        global GameTrue
-        self.second = uvage.from_color(1000, 600, "red", 5, 5)
-        self.second1 = uvage.from_color(1000, 600, "red", 5, 5)
-        self.second2 = uvage.from_color(1000, 600, "red", 5, 5)
+        self.ticks = 0
 
-    def time_move(self):
-        global time
-        global second_time
-        global third_time
-        if GameTrue:
-            if self.second.y <= 600:
-                self.second.y -= 12
-                if self.second.y <= 0:
-                    time += 1
-                    self.second.y = 600
-            if self.second1.y <= 600:
-                self.second1.y -= 100
-                if self.second1.y <= 0:
-                    second_time += 1
-                    self.second1.y = 600
-            if self.second2.y <= 600:
-                self.second2.y -= 6000
-                if self.second2.y <= 0:
-                    third_time += 1
-                    self.second2.y = 600
-        camera.draw("Time: " + str(int(time)), 36, "black", 60, 30)
+    @property
+    def seconds(self):
+        return self.ticks // FPS
+
+    def tick(self):
+        self.ticks += 1
+
+    def reset(self):
+        self.ticks = 0
+
+    def draw(self):
+        camera.draw("Time: " + str(self.seconds), 36, "black", 60, 30)
 
 
-# Fruit class represents collectible items
+# Fruit is the pineapple collectible
 class Fruit:
 
-    def __init__(self, x, y):
-        x = random.randint(55, (screen_width - 55))
-        y = random.randint(55, (screen_height - 55))
-
-        self.pineapple = uvage.from_image(x, y, "pineapple.png")
+    def __init__(self):
+        self.pineapple = uvage.from_image(0, 0, asset("pineapple.png"))
         self.active = False
 
-    def activate(self, x, y):
-        self.pineapple.x = x
-        self.pineapple.y = y
+    def spawn(self):
+        self.pineapple.x = random.randint(200, 400)
+        self.pineapple.y = random.randint(200, 400)
         self.active = True
 
-    def existing(self):
-        global b
-        if cowboy.cowman.touches(self.pineapple):
-            if b < 60:
-                b += 3
+    def collect_if_touched(self, cowboy):
+        if self.active and cowboy.cowman.touches(self.pineapple):
             self.active = False
-            fruits.clear()
+            return True
+        return False
+
+    def draw(self):
+        if self.active:
+            camera.draw(self.pineapple)
 
 
-# Cowboy class manages the main character's actions
+# Cowboy is the player
 class Cowboy:
 
-    def __init__(self, x, y):
-        self.cowman = uvage.from_image(x, y, "cowboy_50x50.png")
+    START = (125, 500)
+
+    def __init__(self):
+        self.cowman = uvage.from_image(*self.START, asset("cowboy_50x50.png"))
         self.speed = 5
-        self.is_walking = False
+        self.contact_frames = 0
 
-    def cowboy_die(self):
-        global x
-        if self.cowman.touches(enemy1.badguy):
-            x += 1
-        if self.cowman.touches(enemy2.badguy):
-            x += 1
+    @property
+    def hits(self):
+        return self.contact_frames // HIT_FRAMES
 
-    def move_up(self):
-        global GameTrue
-        if self.cowman.y > 50:
-            self.cowman.y -= self.speed
-            self.is_walking = True
-        elif self.cowman.y <= 50 or not GameTrue:
-            self.cowman.speedy = 0
-            self.is_walking = False
+    @property
+    def dead(self):
+        return self.hits >= MAX_HITS
 
-    def move_right(self):
-        global GameTrue
-        if self.cowman.x < 750:
-            self.cowman.x += self.speed
-            self.is_walking = True
-        elif self.cowman.y >= 750 or not GameTrue:
-            self.cowman.speedx = 0
-            self.is_walking = False
+    def reset(self):
+        self.cowman.x, self.cowman.y = self.START
+        self.contact_frames = 0
 
-    def move_left(self):
-        global GameTrue
-        if self.cowman.x > 50:
-            self.cowman.x -= self.speed
-            self.is_walking = True
-        elif self.cowman.x <= 50 or not GameTrue:
-            self.cowman.speedx = 0
-            self.is_walking = False
-
-    def move_down(self):
-        global GameTrue
-        if self.cowman.y < 550:
-            self.cowman.y += self.speed
-            self.is_walking = True
-
-    def touch(self):
-        fruit = Fruit(random.randint(200, 400), random.randint(200, 400))
-        return fruit
-
-
-# Bullet class controls the behavior of bullets
-class Bullet:
-    global b
-
-    def __init__(self, x, y):
-        self.bullet_image = uvage.from_color(x, y, "black", 9, 3)
-        self.speed = b
+    def take_contact(self, enemies):
+        for enemy in enemies:
+            if self.cowman.touches(enemy.badguy):
+                self.contact_frames += 1
 
     def move(self):
-        global bullet_shooting
-        if not bullet_shooting:
-            self.bullet_image.x = cowboy.cowman.x + 100000
+        if uvage.is_pressing("w") and self.cowman.y > 50:
+            self.cowman.y -= self.speed
+        if uvage.is_pressing("s") and self.cowman.y < 550:
+            self.cowman.y += self.speed
+        if uvage.is_pressing("a") and self.cowman.x > 50:
+            self.cowman.x -= self.speed
+        if uvage.is_pressing("d") and self.cowman.x < 750:
+            self.cowman.x += self.speed
+
+    def draw(self):
+        camera.draw(self.cowman)
+
+
+# Bullet is a single shot; it flies until it leaves the screen or hits an enemy
+class Bullet:
+
+    def __init__(self):
+        self.bullet_image = uvage.from_color(-100, -100, "black", 9, 3)
+        self.flying = False
+        self.speed = BASE_BULLET_SPEED
+
+    def fire(self, cowboy, speed):
+        if not self.flying:
+            self.bullet_image.x = cowboy.cowman.x + 5
             self.bullet_image.y = cowboy.cowman.y
-        if bullet_shooting:
+            self.speed = speed
+            self.flying = True
+
+    def update(self, enemies):
+        if not self.flying:
+            return
+        self.bullet_image.x += self.speed
+        if self.bullet_image.x > SCREEN_WIDTH:
+            self.flying = False
+            return
+        for enemy in enemies:
+            if self.bullet_image.touches(enemy.badguy):
+                enemy.hp -= 1
+                self.flying = False
+                return
+
+    def draw(self):
+        if self.flying:
             camera.draw(self.bullet_image)
-            self.bullet_image.x += self.speed
-            self.bullet_image.y += 0
-            if self.bullet_image.x > 800:
-                self.bullet_image.x = cowboy.cowman.x + 5
-                self.bullet_image.y = cowboy.cowman.y
-                bullet_shooting = False
-
-    def bulletkills(self):
-        global enemy_killed
-        global time
-        global time_kill
-        if self.bullet_image.right_touches(enemy1.badguy, 5, 5):
-            time_kill -= 1
-        if time_kill == 0:
-            enemy_killed = True
-
-    def bulletkills2(self):
-        global enemy_killed2
-        global time
-        global time_kill2
-        if self.bullet_image.right_touches(enemy2.badguy, 5, 5):
-            time_kill2 -= 1
-        if time_kill2 == 0:
-            enemy_killed2 = True
 
 
-# Enemy class defines enemy behavior
+# Enemy walks toward the house; each instance has its own health
 class Enemy:
 
     def __init__(self):
-        self.badguy = uvage.from_image(900, random.randint(55, 545), "enemy.png")
+        self.badguy = uvage.from_image(900, 0, asset("enemy.png"))
         self.speed = 1
+        self.hp = 1
+        self.max_hp = 1
+        self.respawn(0)
 
-    def move(self):
-        global GameTrue
-        global enemy_killed
-        global time_kill
-        if GameTrue:
-            if enemy_killed:
-                self.badguy.x = 900
-                self.badguy.y = (random.randint(55, 545))
-                if self.badguy.x == 900:
-                    enemy_killed = False
-                    if third_time > 0:
-                        time_kill = 1
-                        if third_time > 2000:
-                            time_kill = 2
-                            if third_time > 3000:
-                                time_kill = 4
-                                if third_time > 4000:
-                                    time_kill = 6
-                                    if third_time > 5000:
-                                        time_kill = 8
-                                        if third_time > 6000:
-                                            time_kill = 10
-            self.badguy.x -= self.speed
-            if self.badguy.x < 50:
-                GameTrue = False
+    def respawn(self, ticks):
+        self.badguy.x = 900
+        self.badguy.y = random.randint(55, 545)
+        self.max_hp = self.hp = enemy_hp(ticks)
 
-    def move2(self):
-        global GameTrue
-        global enemy_killed2
-        global time_kill2
-        if GameTrue:
-            if enemy_killed2:
-                self.badguy.x = 900
-                self.badguy.y = (random.randint(55, 545))
-                if self.badguy.x == 900:
-                    enemy_killed2 = False
-                    if third_time > 0:
-                        time_kill2 = 1
-                        if third_time > 2000:
-                            time_kill2 = 2
-                            if third_time > 3000:
-                                time_kill2 = 4
-                                if third_time > 4000:
-                                    time_kill2 = 6
-                                    if third_time > 5000:
-                                        time_kill2 = 8
-                                        if third_time > 6000:
-                                            time_kill2 = 10
-            self.badguy.x -= self.speed
-            if self.badguy.x < 50:
-                GameTrue = False
+    def update(self, ticks):
+        if self.hp <= 0:
+            self.respawn(ticks)
+        self.badguy.x -= self.speed
+
+    @property
+    def reached_house(self):
+        return self.badguy.x < HOUSE_X
+
+    def draw(self):
+        camera.draw(self.badguy)
 
 
-# Health class manages health-related and health bar functionalities
+# Health draws a health bar under a unit
 class Health:
 
-    def __init__(self, x, y):
-        self.full_health_bar = uvage.from_image(x, y, "full_health_bar.png")
-        self.half_health_bar = uvage.from_image(x, y, "half_health_bar.png")
-        self.dead = uvage.from_image(x, y, "dead.png")
-        self.full_health_on = False
-        self.half_health_on = False
+    def __init__(self):
+        self.full_health_bar = uvage.from_image(0, 0, asset("full_health_bar.png"))
+        self.half_health_bar = uvage.from_image(0, 0, asset("half_health_bar.png"))
+        self.dead = uvage.from_image(0, 0, asset("dead.png"))
 
-    def cowboy_health(self):
-        global GameTrue
-        global x
-        if 30 > x >= 0:
-            self.full_health_bar.x = cowboy.cowman.x
-            self.full_health_bar.y = cowboy.cowman.y + 35
-
-        if 60 > x >= 30:
-            self.full_health_bar.x = 1000
-            self.full_health_bar.y = 1000
-            self.half_health_bar.x = cowboy.cowman.x
-            self.half_health_bar.y = cowboy.cowman.y + 35
-
-        if x >= 60:
-            self.half_health_bar.x = 1000
-            self.half_health_bar.y = 1000
-            self.dead.x = cowboy.cowman.x
-            self.dead.y = cowboy.cowman.y + 35
-            GameTrue = False
-
-    def moving_healthbars(self):
-        if self.full_health_on:
-            self.full_health_bar.x = enemy1.badguy.x
-            self.full_health_bar.y = enemy1.badguy.y + 35
-        if not self.full_health_on:
-            self.full_health_bar.x = 10000
-            self.full_health_bar.y = 10000
-        if self.half_health_on:
-            self.half_health_bar.x = enemy1.badguy.x
-            self.half_health_bar.y = enemy1.badguy.y + 35
-        if not self.half_health_on:
-            self.half_health_bar.x = 10000
-            self.half_health_bar.y = 10000
-
-    def moving_healthbars2(self):
-        if self.full_health_on:
-            self.full_health_bar.x = enemy2.badguy.x
-            self.full_health_bar.y = enemy2.badguy.y + 35
-        if not self.full_health_on:
-            self.full_health_bar.x = 10000
-            self.full_health_bar.y = 10000
-        if self.half_health_on:
-            self.half_health_bar.x = enemy2.badguy.x
-            self.half_health_bar.y = enemy2.badguy.y + 35
-        if not self.half_health_on:
-            self.half_health_bar.x = 10000
-            self.half_health_bar.y = 10000
-
-    def health_changing_enemy_1(self):
-
-        global third_time
-        global time_kill
-
-        if 2000 > third_time > 0:
-            if time_kill == 1:
-                self.full_health_on = True
-                self.half_health_on = False
-        elif 3000 > third_time > 2000:
-            if time_kill == 2:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill == 1:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif 4000 > third_time > 3000:
-            if time_kill == 4:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill == 2:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif 5000 > third_time > 4000:
-            if time_kill == 6:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill == 3:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif 6000 > third_time > 5000:
-            if time_kill == 8:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill == 4:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif third_time > 6000:
-            if time_kill == 10:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill == 5:
-                self.full_health_on = False
-                self.half_health_on = True
-
-    def health_changing_enemy_2(self):
-
-        global third_time
-        global time_kill2
-
-        if 2000 > third_time > 0:
-            if time_kill2 == 1:
-                self.full_health_on = True
-                self.half_health_on = False
-        elif 3000 > third_time > 2000:
-            if time_kill2 == 2:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill2 == 1:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif 4000 > third_time > 3000:
-            if time_kill2 == 4:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill2 == 2:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif 5000 > third_time > 4000:
-            if time_kill2 == 6:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill2 == 3:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif 6000 > third_time > 5000:
-            if time_kill2 == 8:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill2 == 4:
-                self.full_health_on = False
-                self.half_health_on = True
-        elif third_time > 6000:
-            if time_kill2 == 10:
-                self.full_health_on = True
-                self.half_health_on = False
-            elif time_kill2 == 5:
-                self.full_health_on = False
-                self.half_health_on = True
+    def draw(self, x, y, fraction, dead=False):
+        bar = self.dead if dead else (
+            self.full_health_bar if fraction > 0.5 else self.half_health_bar)
+        bar.x = x
+        bar.y = y + 35
+        camera.draw(bar)
 
 
-# Initialize game elements and objects
-cowboy = Cowboy(125, 500)
-fruits = []
-bullets = Bullet((cowboy.cowman.x + 2), cowboy.cowman.y)
+scenery = [uvage.from_image(700, 400, asset("cactus.png")),
+           uvage.from_image(400, 124, asset("cactus.png"))]
+house = uvage.from_image(70, 300, asset("House.png"))
+
 timer = TimerAll()
-enemy1 = Enemy()
-enemy2 = Enemy()
-health = Health(10000, 100000)
-health2 = Health(10000, 100000)
-health_cowboy = Health(10000, 10000)
+cowboy = Cowboy()
+fruit = Fruit()
+bullet = Bullet()
+enemies = [Enemy(), Enemy()]
+enemy_bars = [Health(), Health()]
+cowboy_bar = Health()
+
+running = True
+bullet_speed = BASE_BULLET_SPEED
+
+
+def reset():
+    global running, bullet_speed
+    timer.reset()
+    cowboy.reset()
+    fruit.active = False
+    bullet.flying = False
+    for enemy in enemies:
+        enemy.respawn(0)
+    bullet_speed = BASE_BULLET_SPEED
+    running = True
+
+
+def update():
+    global running, bullet_speed
+    timer.tick()
+    for blocker in scenery + [house]:
+        cowboy.cowman.move_to_stop_overlapping(blocker)
+    cowboy.move()
+    if camera.mouseclick:
+        bullet.fire(cowboy, bullet_speed)
+
+    if not fruit.active and timer.ticks % FRUIT_INTERVAL == 0:
+        fruit.spawn()
+    if fruit.collect_if_touched(cowboy):
+        bullet_speed = min(bullet_speed + PINEAPPLE_BOOST, MAX_BULLET_SPEED)
+
+    for enemy in enemies:
+        enemy.update(timer.ticks)
+    bullet.update(enemies)
+    cowboy.take_contact(enemies)
+
+    if cowboy.dead or any(enemy.reached_house for enemy in enemies):
+        running = False
+
+
+def draw():
+    camera.clear("#EFDD6F")
+    for item in scenery:
+        camera.draw(item)
+    fruit.draw()
+    for enemy, bar in zip(enemies, enemy_bars):
+        enemy.draw()
+        bar.draw(enemy.badguy.x, enemy.badguy.y, enemy.hp / enemy.max_hp)
+    cowboy.draw()
+    cowboy_bar.draw(cowboy.cowman.x, cowboy.cowman.y,
+                    1 - cowboy.contact_frames / (MAX_HITS * HIT_FRAMES), dead=cowboy.dead)
+    bullet.draw()
+    camera.draw(house)
+    timer.draw()
+    if not running:
+        camera.draw(uvage.from_text(400, 300, "GAME OVER", 50, "red", bold=True))
+        camera.draw(uvage.from_text(400, 400, "Click 'space' to restart the game", 30, "red"))
+    camera.display()
 
 
 # Main game loop
 def tick():
-    global time
-    global second_time
-    global third_time
-    global b
-    global GameTrue
-    global enemy_killed
-    global enemy_killed2
-    global bullet_shooting
-    global time_kill
-    global time_kill2
-    global x
-    camera.clear('#EFDD6F')
-    cowboy.cowman.move_to_stop_overlapping(scenery[0])
-    cowboy.cowman.move_to_stop_overlapping(scenery[1])
-    cowboy.cowman.move_to_stop_overlapping(house)
-    timer.time_move()
-    cowboy.cowboy_die()
-    enemy1.move()
-    enemy2.move2()
-    bullets.move()
-    bullets.bulletkills()
-    bullets.bulletkills2()
-    health_cowboy.cowboy_health()
-    health.health_changing_enemy_1()
-    health2.health_changing_enemy_2()
-    health.moving_healthbars()
-    health2.moving_healthbars2()
-    if GameTrue:
-        camera.draw(health_cowboy.dead)
-        if uvage.is_pressing("w"):
-            cowboy.move_up()
-        if uvage.is_pressing("s"):
-            cowboy.move_down()
-        if uvage.is_pressing("a"):
-            cowboy.move_left()
-        if uvage.is_pressing("d"):
-            cowboy.move_right()
-        if camera.mouseclick:
-            bullet_shooting = True
-        if (second_time % 60) == 0:
-            if not any(fruit.active for fruit in fruits):
-                new_fruit = cowboy.touch()
-                fruits.append(new_fruit)
-                new_fruit.activate((random.randint(200, 400)),
-                                   (random.randint(200, 400)))
-        for fruit in fruits:
-            fruit.existing()
-            camera.draw(fruit.pineapple)
-    if not GameTrue:
-        gameovertext = [uvage.from_text(400, 300, "GAME OVER", 50, "red", bold=True),
-                        uvage.from_text(400, 400, "Click 'space' to restart the game", 30, "red")]
-        camera.draw(gameovertext[0])
-        camera.draw(gameovertext[1])
-        if uvage.is_pressing("space"):
-            health_cowboy.dead.x = 10000
-            enemy_killed = True
-            enemy_killed2 = True
-            time_kill1 = 1
-            time_kill2 = 1
-            time = 0
-            second_time = 0
-            third_time = 0
-            b = 15
-            x = 1
-            cowboy.cowman.x = 125
-            cowboy.cowman.y = 500
-            GameTrue = True
-
-    camera.draw(scenery[0])
-    camera.draw(scenery[1])
-    camera.draw(cowboy.cowman)
-    camera.draw(timer.second)
-    camera.draw(timer.second1)
-    camera.draw(timer.second2)
-    camera.draw(enemy1.badguy)
-    camera.draw(enemy2.badguy)
-    camera.draw(health_cowboy.full_health_bar)
-    camera.draw(health_cowboy.half_health_bar)
-    camera.draw(health.full_health_bar)
-    camera.draw(health.half_health_bar)
-    camera.draw(health2.full_health_bar)
-    camera.draw(health2.half_health_bar)
-    camera.draw(house)
-    camera.draw(health_cowboy.dead)
-    camera.display()
+    if running:
+        update()
+    elif uvage.is_pressing("space"):
+        reset()
+    draw()
 
 
-uvage.timer_loop(100000060, tick)
+if __name__ == "__main__":
+    uvage.timer_loop(FPS, tick)

@@ -17,3 +17,20 @@ Collectibles: Pineapples increase your fire rate when collected.
 Timer: Displayed in the top-left corner.
 Health Bars: For both the cowboy and enemies, showing remaining health.
 The game evolved from CP2 by introducing collectible items to boost fire rate and making enemies move towards you instead of you chasing them.
+
+## Running
+
+```
+pip install -r requirements.txt
+python "Python Game/Game.py"
+```
+
+Press Esc to quit. Pineapples raise bullet speed by 3 up to a cap, which shortens the time between shots; standing nearer the right edge shortens it too, since the bullet has less distance to cover.
+
+## Tests
+
+```
+pytest
+```
+
+The tests run headless (SDL dummy driver) against the game rules.

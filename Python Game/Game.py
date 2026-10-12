@@ -1,5 +1,3 @@
-# Jason Park hbv6np
-
 # This game has a main character, scenery, and enemies. The main character is a cowboy who is trying to defend his home.
 # You can move this character up with "w", down with "s", left with "a", and right with "d". You can shoot with
 # this character by using your left click on your mouse. The fire rate of your weapon will increase based on the
@@ -109,7 +107,6 @@ class Fruit:
             camera.draw(self.pineapple)
 
 
-# Cowboy is the player
 class Cowboy:
 
     START = (125, 500)
@@ -298,7 +295,6 @@ def draw():
     camera.display()
 
 
-# Main game loop
 def tick():
     if running:
         update()
